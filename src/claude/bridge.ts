@@ -49,7 +49,15 @@ export class ClaudeCodeBridge {
     try {
       const queryOptions: Options = {
         cwd: options.cwd,
-        allowedTools: options.allowedTools,
+
+        // Enable Skills: load from user and project directories
+        settingSources: ['user', 'project'],
+
+        // Add 'Skill' to allowed tools if not already present
+        allowedTools: options.allowedTools
+          ? [...new Set([...options.allowedTools, 'Skill'])]
+          : undefined,
+
         permissionMode:
           (options.permissionMode as Options['permissionMode']) ?? 'bypassPermissions',
         allowDangerouslySkipPermissions:
