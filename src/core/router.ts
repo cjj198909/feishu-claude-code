@@ -339,6 +339,8 @@ export class MessageRouter {
     let latestText = '';
     let lastUpdateTime = 0;
     let resultSessionId: string | undefined;
+    let resultCost = 0;
+    let resultTurns = 0;
     let aborted = false;
 
     const resumeSessionId = this.sessions.getCurrentSessionId();
@@ -360,6 +362,8 @@ export class MessageRouter {
             latestText = event.content;
           } else if (event.type === 'result') {
             resultSessionId = event.sessionId;
+            resultCost = event.costUsd ?? 0;
+            resultTurns = event.numTurns ?? 0;
             // Save session and record usage
             if (event.sessionId) {
               const summary = latestText.slice(0, 200) || null;
@@ -368,15 +372,7 @@ export class MessageRouter {
             if (event.costUsd != null && event.durationMs != null && event.numTurns != null) {
               try { this.sessions.recordUsage(event.sessionId ?? null, event.costUsd, event.durationMs, event.numTurns); } catch (e) { logger.error('Failed to record usage', e); }
             }
-            // Update to done card
-            const elapsedSec = Math.round((Date.now() - startTime) / 1000);
-            const doneCard = buildDoneCard(projectName, event.content || latestText || 'Done.', {
-              tools: this.summarizeTools(toolCalls),
-              elapsed: elapsedSec,
-              cost: event.costUsd ?? 0,
-              turns: event.numTurns ?? 0,
-            });
-            this.bot.updateCard(cardMessageId, doneCard).catch(e => logger.error('Failed to update done card', e));
+            // Skip further updates - done card will be sent after execute() completes
             return;
           }
 
@@ -390,6 +386,18 @@ export class MessageRouter {
           }
         },
       );
+
+      // If execution completed successfully, update to done card
+      if (!aborted && resultSessionId !== undefined) {
+        const elapsedSec = Math.round((Date.now() - startTime) / 1000);
+        const doneCard = buildDoneCard(projectName, latestText || 'Done.', {
+          tools: this.summarizeTools(toolCalls),
+          elapsed: elapsedSec,
+          cost: resultCost,
+          turns: resultTurns,
+        });
+        await this.bot.updateCard(cardMessageId, doneCard).catch(e => logger.error('Failed to update done card', e));
+      }
     } catch (err) {
       const elapsedSec = Math.round((Date.now() - startTime) / 1000);
       const message = (err as Error).message ?? String(err);
