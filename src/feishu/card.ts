@@ -17,8 +17,7 @@ interface Card {
 }
 
 export function buildRunningCard(projectName: string, toolCalls: string[], latestText: string, elapsedSec: number): Card {
-  const toolLines = toolCalls.map(t => `🔧 ${t}`).join('\n');
-  const body = toolLines ? `${toolLines}\n\n${latestText}` : latestText || '处理中...';
+  const body = latestText || '处理中...';
 
   return {
     config: { wide_screen_mode: true },

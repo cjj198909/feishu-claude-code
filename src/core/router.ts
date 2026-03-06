@@ -54,6 +54,9 @@ export class MessageRouter {
         const filepath = saveImage(buffer, 'png');
         const prompt = `Please look at this image: ${filepath}`;
         await this.handlePrompt(chatId, prompt);
+      } else if (msgType === 'post') {
+        // Rich text (post) message — extract text and images
+        await this.handlePostMessage(chatId, messageId, content);
       } else {
         await this.bot.sendText(chatId, `Unsupported message type: ${msgType}. Please send text or image.`);
       }
@@ -257,6 +260,57 @@ export class MessageRouter {
       '/help - Show this help',
     ];
     await this.bot.sendText(chatId, help.join('\n'));
+  }
+
+  // ─── Post (rich text) handling ──────────────────────────────────
+
+  private async handlePostMessage(chatId: string, messageId: string, content: string): Promise<void> {
+    try {
+      const parsed = JSON.parse(content);
+      // post content can be localized: { "zh_cn": { "title": "...", "content": [[...]] } }
+      // or directly { "title": "...", "content": [[...]] }
+      const postBody = parsed.zh_cn || parsed.en_us || parsed.ja_jp || parsed;
+      const lines: Array<Array<{ tag: string; text?: string; image_key?: string }>> = postBody.content || [];
+
+      const textParts: string[] = [];
+      const imagePaths: string[] = [];
+
+      for (const line of lines) {
+        for (const element of line) {
+          if (element.tag === 'text' && element.text) {
+            textParts.push(element.text);
+          } else if (element.tag === 'img' && element.image_key) {
+            try {
+              const buffer = await this.bot.downloadImage(messageId, element.image_key);
+              const filepath = saveImage(buffer, 'png');
+              imagePaths.push(filepath);
+            } catch (e) {
+              logger.error('Failed to download image from post:', e);
+            }
+          }
+        }
+      }
+
+      // Build prompt combining text and image paths
+      let prompt = textParts.join('').replace(/@_user_\d+/g, '').trim();
+      if (imagePaths.length > 0) {
+        const imageRefs = imagePaths.map(p => `Image: ${p}`).join('\n');
+        prompt = prompt ? `${prompt}\n\n${imageRefs}` : `Please look at these images:\n${imageRefs}`;
+      }
+
+      if (!prompt) return;
+
+      // Check if it's a command
+      const result = parse(prompt);
+      if (result.type === 'command') {
+        await this.handleCommand(chatId, result.name, result.args);
+      } else {
+        await this.handlePrompt(chatId, result.text);
+      }
+    } catch (err) {
+      logger.error('Failed to parse post message:', err);
+      await this.bot.sendText(chatId, 'Failed to parse rich text message.');
+    }
   }
 
   // ─── Prompt handling ────────────────────────────────────────────

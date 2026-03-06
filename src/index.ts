@@ -1,3 +1,6 @@
+// Allow spawning Claude Code subprocess from within a Claude Code session
+delete process.env.CLAUDECODE;
+
 import { loadConfig } from './utils/config.js';
 import { setLogLevel, logger } from './utils/logger.js';
 import { Database } from './db/database.js';

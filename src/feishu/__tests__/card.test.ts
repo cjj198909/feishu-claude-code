@@ -7,8 +7,10 @@ describe('card templates', () => {
     expect(card.header.template).toBe('blue');
     expect(card.header.title.content).toContain('frontend');
     const md = card.elements.find((e) => e.tag === 'markdown') as { tag: string; content: string };
-    expect(md.content).toContain('Read src/App.tsx');
     expect(md.content).toContain('Analyzing...');
+    expect(md.content).not.toContain('Read src/App.tsx');
+    const note = card.elements.find((e) => e.tag === 'note') as any;
+    expect(note.elements[0].content).toContain('2 tools');
   });
 
   it('should build done card', () => {

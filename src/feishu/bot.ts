@@ -14,8 +14,13 @@ export class FeishuBot {
   private client: lark.Client;
   private wsClient?: lark.WSClient;
   private onMessage?: MessageHandler;
+  private appId: string;
+  private appSecret: string;
+  private processedMessages = new Set<string>();
 
   constructor(appId: string, appSecret: string) {
+    this.appId = appId;
+    this.appSecret = appSecret;
     this.client = new lark.Client({ appId, appSecret });
   }
 
@@ -29,6 +34,18 @@ export class FeishuBot {
         try {
           const msg = data.message;
           const sender = data.sender;
+
+          // Deduplicate: Feishu retries if processing takes too long
+          if (this.processedMessages.has(msg.message_id)) {
+            logger.debug(`Duplicate message ignored: ${msg.message_id}`);
+            return;
+          }
+          this.processedMessages.add(msg.message_id);
+          // Prevent memory leak: cap at 1000 entries
+          if (this.processedMessages.size > 1000) {
+            const first = this.processedMessages.values().next().value!;
+            this.processedMessages.delete(first);
+          }
 
           const event: Parameters<MessageHandler>[0] = {
             messageId: msg.message_id,
@@ -58,9 +75,9 @@ export class FeishuBot {
     });
 
     this.wsClient = new lark.WSClient({
-      appId: this.client.appId,
-      appSecret: this.client.appSecret,
-      loggerLevel: lark.LoggerLevel.warn,
+      appId: this.appId,
+      appSecret: this.appSecret,
+      loggerLevel: lark.LoggerLevel.debug,
     });
 
     await this.wsClient.start({ eventDispatcher: dispatcher });
