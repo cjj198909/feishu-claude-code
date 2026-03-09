@@ -1,9 +1,25 @@
 // src/claude/bridge.ts
-import { query, type Options, type CanUseTool } from '@anthropic-ai/claude-agent-sdk';
+import { query, type Options, type CanUseTool, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { readFileSync, readdirSync, existsSync } from 'fs';
 import { join } from 'path';
 import { logger } from '../utils/logger.js';
 import { QuestionManager, type AskQuestion } from '../core/question-manager.js';
+
+/** Image attachment for multimodal prompts */
+export interface Attachment {
+  buffer: Buffer;
+  mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+}
+
+/** Detect image MIME type from magic bytes, default to image/png */
+function detectImageMime(buf: Buffer): Attachment['mediaType'] {
+  if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return 'image/jpeg';
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return 'image/png';
+  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return 'image/gif';
+  if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
+      buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) return 'image/webp';
+  return 'image/png';
+}
 
 export interface StreamEvent {
   type: 'text' | 'tool_use' | 'tool_result' | 'result' | 'ask_questions';
@@ -25,6 +41,7 @@ export interface BridgeOptions {
   permissionMode?: string;
   maxTurns?: number;
   enableQuestions?: boolean;
+  attachments?: Buffer[];
 }
 
 /**
@@ -228,7 +245,41 @@ export class ClaudeCodeBridge {
         questionsEnabled: !!canUseTool,
       });
 
-      for await (const message of query({ prompt, options: queryOptions })) {
+      // Build prompt: multimodal (AsyncIterable) when attachments present, string otherwise
+      let queryPrompt: string | AsyncIterable<SDKUserMessage> = prompt;
+      if (options.attachments && options.attachments.length > 0) {
+        const contentBlocks: Array<
+          | { type: 'text'; text: string }
+          | { type: 'image'; source: { type: 'base64'; media_type: Attachment['mediaType']; data: string } }
+        > = [];
+
+        // Add image blocks first
+        for (const buf of options.attachments) {
+          const mime = detectImageMime(buf);
+          contentBlocks.push({
+            type: 'image',
+            source: { type: 'base64', media_type: mime, data: buf.toString('base64') },
+          });
+        }
+
+        // Add text prompt
+        contentBlocks.push({ type: 'text', text: prompt });
+
+        const userMessage: SDKUserMessage = {
+          type: 'user' as const,
+          session_id: '',
+          message: { role: 'user' as const, content: contentBlocks as any },
+          parent_tool_use_id: null,
+        };
+        queryPrompt = (async function* () { yield userMessage; })();
+
+        logger.info('Using multimodal prompt', {
+          imageCount: options.attachments.length,
+          mimeTypes: options.attachments.map(b => detectImageMime(b)),
+        });
+      }
+
+      for await (const message of query({ prompt: queryPrompt, options: queryOptions })) {
         if (abortController.signal.aborted) break;
 
         if (message.type === 'assistant' && message.message?.content) {
