@@ -6,7 +6,6 @@ import { QuestionManager } from './question-manager.js';
 import { ClaudeCodeBridge, type StreamEvent } from '../claude/bridge.js';
 import { FeishuBot, type MessageHandler, type CardActionEvent } from '../feishu/bot.js';
 import { buildStreamingCard, buildDoneStreamingCard, buildErrorStreamingCard, buildAbortedStreamingCard, buildProcessingStreamingCard, buildRunningCard, buildDoneCard, buildErrorCard, buildAbortedCard, buildQuestionFormElements, ELEMENT_IDS } from '../feishu/card.js';
-import { saveImage } from '../feishu/image.js';
 import { logger } from '../utils/logger.js';
 
 export class MessageRouter {
@@ -60,9 +59,7 @@ export class MessageRouter {
           return;
         }
         const buffer = await this.bot.downloadImage(messageId, imageKey);
-        const filepath = saveImage(buffer, 'png');
-        const prompt = `Please look at this image: ${filepath}`;
-        await this.handlePrompt(chatId, prompt);
+        await this.handlePrompt(chatId, 'Please look at this image.', [buffer]);
       } else if (msgType === 'post') {
         // Rich text (post) message — extract text and images
         await this.handlePostMessage(chatId, messageId, content);
@@ -276,13 +273,11 @@ export class MessageRouter {
   private async handlePostMessage(chatId: string, messageId: string, content: string): Promise<void> {
     try {
       const parsed = JSON.parse(content);
-      // post content can be localized: { "zh_cn": { "title": "...", "content": [[...]] } }
-      // or directly { "title": "...", "content": [[...]] }
       const postBody = parsed.zh_cn || parsed.en_us || parsed.ja_jp || parsed;
       const lines: Array<Array<{ tag: string; text?: string; image_key?: string }>> = postBody.content || [];
 
       const textParts: string[] = [];
-      const imagePaths: string[] = [];
+      const imageBuffers: Buffer[] = [];
 
       for (const line of lines) {
         for (const element of line) {
@@ -291,8 +286,7 @@ export class MessageRouter {
           } else if (element.tag === 'img' && element.image_key) {
             try {
               const buffer = await this.bot.downloadImage(messageId, element.image_key);
-              const filepath = saveImage(buffer, 'png');
-              imagePaths.push(filepath);
+              imageBuffers.push(buffer);
             } catch (e) {
               logger.error('Failed to download image from post:', e);
             }
@@ -300,21 +294,22 @@ export class MessageRouter {
         }
       }
 
-      // Build prompt combining text and image paths
       let prompt = textParts.join('').replace(/@_user_\d+/g, '').trim();
-      if (imagePaths.length > 0) {
-        const imageRefs = imagePaths.map(p => `Image: ${p}`).join('\n');
-        prompt = prompt ? `${prompt}\n\n${imageRefs}` : `Please look at these images:\n${imageRefs}`;
+      if (!prompt && imageBuffers.length === 0) return;
+      if (!prompt && imageBuffers.length > 0) {
+        prompt = 'Please look at these images.';
       }
 
-      if (!prompt) return;
-
-      // Check if it's a command
-      const result = parse(prompt);
-      if (result.type === 'command') {
-        await this.handleCommand(chatId, result.name, result.args);
-      } else {
+      // Check if it's a command (only for text-only messages)
+      if (imageBuffers.length === 0) {
+        const result = parse(prompt);
+        if (result.type === 'command') {
+          await this.handleCommand(chatId, result.name, result.args);
+          return;
+        }
         await this.handlePrompt(chatId, result.text);
+      } else {
+        await this.handlePrompt(chatId, prompt, imageBuffers);
       }
     } catch (err) {
       logger.error('Failed to parse post message:', err);
@@ -324,7 +319,7 @@ export class MessageRouter {
 
   // ─── Prompt handling ────────────────────────────────────────────
 
-  private async handlePrompt(chatId: string, text: string): Promise<void> {
+  private async handlePrompt(chatId: string, text: string, attachments?: Buffer[]): Promise<void> {
     const project = this.sessions.getActiveProject();
     if (!project) {
       await this.bot.sendText(chatId, 'No active project. Use /use <name> to select one, or /add <name> <path> to register.');
@@ -375,6 +370,7 @@ export class MessageRouter {
           permissionMode: project.permission_mode,
           maxTurns: project.max_turns,
           enableQuestions: useCardkit, // Only enable interactive questions when cardkit is available
+          attachments,
         },
         (event: StreamEvent) => {
           if (event.type === 'tool_use' && event.toolName) {
