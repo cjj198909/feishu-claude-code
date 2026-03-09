@@ -4,45 +4,59 @@
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue)](https://www.typescriptlang.org/)
 
-一个轻量级的 Node.js 服务，连接飞书 IM 与 Claude Code Agent SDK，实现在飞书中直接使用 Claude 进行代码辅助、项目管理和自动化任务。
+> 在飞书中与 Claude Code 对话，像在终端里一样写代码。
 
-## ✨ 特性
+一个轻量级 Node.js 服务，将飞书 IM 与 [Claude Code Agent SDK](https://docs.anthropic.com/en/docs/claude-code/sdk) 打通——消息直传 Claude Code，零中间层、零 Prompt 工程，保留完整的工具调用能力。个人或小团队即可在飞书群聊中完成代码审查、Bug 修复、功能开发等日常编码工作。
 
-### 核心功能
-- 🤖 **零中间层**：飞书消息直传 Claude Code，无额外 LLM 处理
-- 📁 **多项目管理**：一个飞书 Bot，通过命令切换多个项目工作目录
-- 💾 **会话持久化**：每个项目独立维护 Claude Code 会话上下文，切换不丢失历史
-- 🔄 **流式输出**：实时展示 Claude Code 的执行过程和工具调用
-- 🖼️ **多模态支持**：支持发送图片让 Claude 分析（截图、架构图等）
-- 📊 **费用追踪**：实时统计 API 使用成本和执行时长
+## ✨ 核心特性
 
-### 技术特性
-- ✅ WebSocket 长连接（无需公网 IP）
-- ✅ 消息去重和幂等性保护
-- ✅ 忙碌锁机制（同时只执行一个任务）
-- ✅ 任务中止支持（`/stop` 命令）
-- ✅ 完整的 TypeScript 类型安全
-- ✅ 33 个单元测试覆盖
+| 特性 | 说明 |
+|------|------|
+| 🤖 **零中间层** | 飞书消息直传 Claude Code Agent SDK，保留完整 Agentic 能力 |
+| 📁 **多项目管理** | 一个 Bot 管理多个项目目录，`/use` 一键切换 |
+| 💾 **会话持久化** | 每个项目独立会话上下文，`/resume` 恢复历史对话 |
+| 🔄 **流式卡片** | 实时展示思考过程和工具调用，基于 Cardkit JSON 2.0 逐元素更新 |
+| 🖼️ **多模态** | 直接发送截图、架构图，Claude 自动识别分析 |
+| 🧩 **交互式表单** | Claude 提问时自动弹出飞书表单，支持单选/多选/自由输入 |
+| 🔌 **插件支持** | 自动发现并加载 `~/.claude/plugins/cache` 下的 Claude Code 插件 |
+| 📊 **费用追踪** | `/cost` 实时查看 API 用量，按日/周/月/项目维度统计 |
+
+### 技术亮点
+
+- ✅ WebSocket 长连接 — 无需公网 IP、无需 Webhook
+- ✅ 忙碌锁 — 同一时刻只执行一个任务，避免资源争抢
+- ✅ 消息去重 — 自动处理飞书重试，不会重复执行
+- ✅ 优雅停机 — `SIGINT`/`SIGTERM` 时中止进行中任务，等待卡片最终更新
+- ✅ 33 个单元测试覆盖核心逻辑
 
 ## 📸 效果预览
 
 ```
-用户: /add frontend /home/user/my-project
-Bot:  ✅ 已添加项目 frontend → /home/user/my-project
+👤 /add frontend ~/projects/my-app
+🤖 ✅ 已添加项目 frontend → ~/projects/my-app
 
-用户: /use frontend
-Bot:  🔀 已切换到项目 frontend
+👤 /use frontend
+🤖 🔀 已切换到项目 frontend
 
-用户: 帮我分析一下 src/App.tsx 的代码结构
-Bot:  [流式卡片实时更新]
-      🔧 Read src/App.tsx
-      🔧 Glob src/**/*.tsx
-      ✏️  分析结果：
-          - 使用 React 18 + TypeScript
-          - 采用函数组件 + Hooks 模式
-          - 路由配置在...
+👤 帮我看看这个项目的技术栈和目录结构
+🤖 ┌─ 正在执行... ──────────────────────┐
+   │                                     │
+   │  🔧 Read(package.json)              │
+   │  📂 Glob(src/**/*.{ts,tsx})         │
+   │  🔧 Read(tsconfig.json)            │
+   │                                     │
+   │  这是一个 React 18 + TypeScript 项目  │
+   │  ├── src/components/  — UI 组件     │
+   │  ├── src/hooks/       — 自定义 Hooks│
+   │  ├── src/api/         — API 层      │
+   │  └── src/utils/       — 工具函数    │
+   │  使用 Vite 构建，Tailwind CSS 样式... │
+   │                                     │
+   │  ⏱️ 8s · 💰 $0.03 · 🔧 3 tools     │
+   └─ ✅ 完成 ─────────────────────────────┘
 
-      ⏱️ 12s | 💰 $0.02 | 🔧 2 tools
+👤 [发送一张 UI 截图]
+🤖 这是一个登录页面，我来帮你分析一下布局和改进建议...
 ```
 
 ## 🚀 快速开始
@@ -50,10 +64,10 @@ Bot:  [流式卡片实时更新]
 ### 前置要求
 
 - **Node.js** >= 20.0.0
-- **飞书企业账号**（需创建应用）
-- **Anthropic API Key**（Claude API 访问权限）
+- **飞书企业账号**（需创建自建应用）
+- **Anthropic API Key** 或兼容的第三方 API
 
-### 1. 安装依赖
+### 1. 克隆并安装
 
 ```bash
 git clone https://github.com/cjj198909/feishu-claude-code.git
@@ -63,422 +77,286 @@ npm install
 
 ### 2. 配置环境变量
 
-复制配置模板：
 ```bash
 cp .env.example .env
 ```
 
-编辑 `.env` 文件：
+编辑 `.env`：
+
 ```bash
-# 飞书应用凭据（从飞书开发者后台获取）
-FEISHU_APP_ID=cli_xxxxxxxxxxxxxxxx
+# ── 必填 ──────────────────────────────────
+FEISHU_APP_ID=cli_xxxxxxxxxxxxxxxx       # 飞书开发者后台获取
 FEISHU_APP_SECRET=xxxxxxxxxxxxxxxxxxxx
 
-# Claude API（从 Anthropic 控制台获取）
-ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxxx
+# 二选一：官方 API 或第三方兼容 API
+ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxx   # Anthropic 控制台获取
+# ANTHROPIC_BASE_URL=https://your-proxy  # 第三方 API 地址
+# ANTHROPIC_AUTH_TOKEN=your-key          # 第三方鉴权 Token
 
-# 可选：第三方兼容 API
-# ANTHROPIC_BASE_URL=https://api.provider.com/anthropic
-# ANTHROPIC_AUTH_TOKEN=your-key
-
-# 可选配置
-DEFAULT_PERMISSION_MODE=bypassPermissions  # 推荐保持默认
-LOG_LEVEL=info
-DB_PATH=./data/bridge.db
+# ── 可选（以下为默认值）─────────────────────
+# DEFAULT_PERMISSION_MODE=bypassPermissions
+# DEFAULT_ALLOWED_TOOLS=Read,Write,Edit,Bash,Glob,Grep
+# DEFAULT_MAX_TURNS=100
+# LOG_LEVEL=info
+# DB_PATH=./data/bridge.db
 ```
 
 ### 3. 配置飞书应用
 
-访问 [飞书开放平台](https://open.feishu.cn/app) 创建应用：
+访问 [飞书开放平台](https://open.feishu.cn/app) → 创建企业自建应用：
 
-1. **创建企业自建应用**
-2. **添加应用能力**：
-   - ✅ 机器人
-3. **权限配置**（权限管理）：
-   - ✅ `im:message` - 获取与发送单聊、群组消息
-   - ✅ `im:message.group_at_msg` - 接收群聊中 @机器人消息事件
-   - ✅ `im:message.p2p_msg` - 接收单聊消息事件
-   - ✅ `im:resource` - 获取与上传图片、文件等资源
-4. **事件订阅**（事件与回调）：
-   - ✅ 启用 WebSocket 模式（推荐，无需公网 IP）
-   - ✅ 订阅事件：
-     - `im.message.receive_v1` - 接收消息
-5. **发布版本**：
-   - 创建版本 → 申请发布 → 通过后可用
+**① 添加应用能力**
+- ✅ 机器人
+
+**② 权限配置**（权限管理页面）
+- `im:message` — 获取与发送单聊、群组消息
+- `im:message.group_at_msg` — 接收群聊中 @机器人消息
+- `im:message.p2p_msg` — 接收单聊消息
+- `im:resource` — 获取与上传图片、文件资源
+
+**③ 事件订阅**（事件与回调页面）
+- 启用 **WebSocket 模式**（无需公网 IP）
+- 订阅事件：`im.message.receive_v1`
+
+**④ 发布**
+- 创建版本 → 申请发布 → 审核通过后可用
 
 ### 4. 启动服务
 
-**开发模式**（带热重载）：
 ```bash
+# 开发模式（热重载）
 npm run dev
-```
 
-**生产模式**：
-```bash
-npm run build
-npm start
-```
+# 生产构建
+npm run build && npm start
 
-**使用 PM2**（推荐生产环境）：
-```bash
+# PM2 托管（推荐）
 npm install -g pm2
 pm2 start ecosystem.config.cjs
-pm2 save
-pm2 startup  # 设置开机自启
+pm2 save && pm2 startup
 ```
 
-### 5. 在飞书中使用
+### 5. 开始使用
 
-1. **添加机器人到群聊或单聊**
-2. **发送第一条命令**：
-   ```
-   /add myproject /path/to/your/project
-   /use myproject
-   帮我看看这个项目的结构
-   ```
+在飞书中与 Bot 单聊或将其加入群聊：
 
-## 📚 命令列表
+```
+/add myproject /path/to/your/project
+/use myproject
+帮我看看这个项目的结构
+```
+
+## 📚 命令参考
 
 ### 项目管理
 
 | 命令 | 说明 | 示例 |
 |------|------|------|
-| `/add <name> <path>` | 添加新项目 | `/add frontend /home/user/frontend` |
-| `/remove <name>` | 删除项目 | `/remove frontend` |
-| `/use <name>` | 切换当前项目 | `/use backend` |
-| `/list` | 列出所有项目 | `/list` |
-| `/config <key> <value>` | 修改项目配置 | `/config permission_mode default` |
+| `/add <名称> <路径>` | 注册项目目录 | `/add web ~/projects/web-app` |
+| `/remove <名称>` | 删除项目 | `/remove web` |
+| `/use <名称>` | 切换当前项目 | `/use web` |
+| `/list` | 列出所有已注册项目 | `/list` |
+| `/config <key> <val>` | 修改项目配置 | `/config permission_mode default` |
 
 ### 会话管理
 
 | 命令 | 说明 | 示例 |
 |------|------|------|
-| `/status` | 查看当前状态 | `/status` |
-| `/reset` | 重置当前会话 | `/reset` |
-| `/history` | 查看历史会话列表 | `/history` |
-| `/resume <id>` | 恢复指定会话 | `/resume 3` |
+| `/status` | 查看当前项目、会话、忙碌状态 | `/status` |
+| `/reset` | 丢弃当前会话，开始新对话 | `/reset` |
+| `/history` | 列出当前项目的历史会话 | `/history` |
+| `/resume <id>` | 恢复历史会话（带上下文） | `/resume 3` |
 
 ### 任务控制
 
 | 命令 | 说明 | 示例 |
 |------|------|------|
-| `/stop` | 中止当前任务 | `/stop` |
-| `/cost` | 查看费用统计 | `/cost` |
+| `/stop` | 中止当前正在执行的任务 | `/stop` |
+| `/cost` | 查看费用统计（日/周/月/项目） | `/cost` |
 | `/help` | 查看帮助信息 | `/help` |
 
-### 配置选项
+### 项目配置项
 
-| 配置项 | 可选值 | 说明 |
-|--------|--------|------|
-| `permission_mode` | `bypassPermissions`, `acceptEdits`, `default` | 权限模式（推荐 `bypassPermissions`） |
-| `allowed_tools` | `Read,Write,Edit,Bash,Glob,Grep` | 允许的工具列表 |
-| `max_turns` | 数字（如 `50`） | 最大执行轮次 |
-| `description` | 任意文本 | 项目描述 |
+通过 `/config <key> <value>` 修改：
+
+| Key | 可选值 | 说明 |
+|-----|--------|------|
+| `permission_mode` | `bypassPermissions` · `acceptEdits` · `default` | 工具权限模式 |
+| `allowed_tools` | 逗号分隔的工具名 | 允许使用的工具，如 `Read,Glob,Grep` |
+| `max_turns` | 正整数 | 单次任务最大执行轮次 |
+| `description` | 任意文本 | 项目描述（`/list` 中展示） |
 
 ## 🎯 使用场景
 
-### 1. 代码审查
-```
-发送代码截图或文件路径
-Claude 自动分析并提供改进建议
-```
+**代码审查** — 发送文件路径或截图，Claude 分析代码质量并给出改进建议
 
-### 2. Bug 修复
-```
-描述问题现象
-Claude 读取相关代码，定位问题并修复
-自动生成 git commit
-```
+**Bug 修复** — 描述问题现象，Claude 读取代码定位根因、修复并提交 commit
 
-### 3. 功能开发
-```
-描述需求："添加用户登录功能"
-Claude 设计架构、生成代码、编写测试
-实时查看执行过程
-```
+**功能开发** — "添加用户登录功能"，Claude 设计方案、生成代码、编写测试，全程流式可见
 
-### 4. 项目文档
-```
-"帮我生成这个项目的 API 文档"
-Claude 扫描代码，生成 Markdown 文档
-```
+**项目文档** — "生成这个项目的 API 文档"，Claude 扫描源码自动输出 Markdown
 
-### 5. 多项目切换
-```
-/use frontend   → 处理前端项目
-/use backend    → 切换到后端项目
-/use docs       → 编写文档
-```
+**多项目工作流** — `/use frontend` 处理前端 → `/use backend` 切到后端 → `/use infra` 改基础设施
 
-## 🏗️ 架构设计
+## 🏗️ 架构
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                    飞书 (WebSocket)                    │
-│              用户发消息 / 接收流式回复                   │
-└──────────────────────┬──────────────────────────────┘
-                       │
-┌──────────────────────▼──────────────────────────────┐
-│              Feishu Bridge Server                     │
-│                                                      │
-│  ┌─────────────┐  ┌──────────────┐  ┌────────────┐ │
-│  │ 消息路由器   │  │ 会话管理器    │  │ 命令解析器  │ │
-│  │MessageRouter│  │SessionManager│  │CommandParser│ │
-│  └──────┬──────┘  └──────┬───────┘  └─────┬──────┘ │
-│         └────────────────┼─────────────────┘        │
-│                          │                           │
-│  ┌───────────────────────▼───────────────────────┐  │
-│  │           Claude Agent SDK Wrapper             │  │
-│  │  - query() 调用，流式获取结果                    │  │
-│  │  - cwd 按项目切换                               │  │
-│  │  - sessionId 恢复上下文                         │  │
-│  └───────────────────────┬───────────────────────┘  │
-│                          │                           │
-│  ┌───────────────────────▼───────────────────────┐  │
-│  │              SQLite 存储层                      │  │
-│  │  - projects: 项目名 → 路径映射                  │  │
-│  │  - sessions: 项目 → sessionId 映射              │  │
-│  │  - usage_stats: 费用和使用统计                  │  │
-│  └───────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────┘
+                        ┌──────────────┐
+                        │   飞书用户    │
+                        │  发消息/图片  │
+                        └──────┬───────┘
+                               │ WebSocket
+                ┌──────────────▼──────────────┐
+                │     FeishuBot (bot.ts)       │
+                │  WebSocket · 卡片更新 · 图片  │
+                └──────────────┬──────────────┘
+                               │
+                ┌──────────────▼──────────────┐
+                │   MessageRouter (router.ts)  │
+                │  命令解析 · 流式卡片编排       │
+                │  QuestionManager · 表单交互   │
+                └───┬──────────────────────┬───┘
+                    │                      │
+        ┌───────────▼───────────┐  ┌───────▼───────┐
+        │  ClaudeCodeBridge     │  │ SessionManager│
+        │  (bridge.ts)          │  │ (session.ts)  │
+        │  Agent SDK · 忙碌锁   │  │ 项目/会话映射  │
+        │  流式事件 · 插件加载   │  └───────┬───────┘
+        └───────────────────────┘          │
+                                   ┌───────▼───────┐
+                                   │   Database     │
+                                   │ (database.ts)  │
+                                   │ SQLite · WAL   │
+                                   └────────────────┘
 ```
 
 ### 技术栈
 
-| 组件 | 技术选型 | 版本 |
-|------|---------|------|
-| 运行时 | Node.js + TypeScript | 20+ |
+| 组件 | 技术 | 版本 |
+|------|------|------|
+| 运行时 | Node.js + TypeScript ESM | 20+ / 5.9 |
 | Claude 集成 | @anthropic-ai/claude-agent-sdk | ^0.2.70 |
-| 飞书集成 | @larksuiteoapi/node-sdk | ^1.59.0 |
-| 数据存储 | better-sqlite3 | ^12.6.2 |
+| 飞书集成 | @larksuiteoapi/node-sdk (WSClient) | ^1.59.0 |
+| 数据存储 | better-sqlite3 (WAL 模式) | ^12.6.2 |
 | 进程管理 | PM2 | latest |
+| 测试 | Vitest | ^4.0.18 |
 
-### 项目结构
+### 目录结构
 
 ```
-feishu-claude-bridge/
-├── src/
-│   ├── index.ts              # 入口文件
-│   ├── feishu/               # 飞书集成
-│   │   ├── bot.ts            # WebSocket 连接 & 消息收发
-│   │   ├── card.ts           # 消息卡片模板
-│   │   └── image.ts          # 图片下载处理
-│   ├── claude/               # Claude Code 集成
-│   │   └── bridge.ts         # Agent SDK 封装
-│   ├── core/                 # 核心业务逻辑
-│   │   ├── command.ts        # 命令解析器
-│   │   ├── session.ts        # 会话管理器
-│   │   └── router.ts         # 消息路由器
-│   ├── db/                   # 数据库
-│   │   └── database.ts       # SQLite 初始化 & CRUD
-│   └── utils/                # 工具函数
-│       ├── logger.ts         # 日志系统
-│       └── config.ts         # 配置加载
-├── data/                     # 数据文件（自动生成）
-│   └── bridge.db             # SQLite 数据库
-├── .env                      # 环境变量（需创建）
-├── package.json
-├── tsconfig.json
-└── ecosystem.config.cjs      # PM2 配置
+src/
+├── index.ts                    # 入口：组装各模块并启动
+├── feishu/
+│   ├── bot.ts                  # WebSocket 连接、消息/卡片收发、图片下载
+│   └── card.ts                 # 流式卡片、完成/错误/中止卡片、交互表单
+├── claude/
+│   └── bridge.ts               # Agent SDK 封装、忙碌锁、多模态、插件发现
+├── core/
+│   ├── command.ts              # 命令解析器（/add /use /stop 等）
+│   ├── session.ts              # 会话管理器（项目 ↔ 会话映射）
+│   ├── router.ts               # 消息路由与流式卡片编排
+│   └── question-manager.ts     # Claude 提问 ↔ 飞书表单交互协调
+├── db/
+│   └── database.ts             # SQLite 初始化与 CRUD
+└── utils/
+    ├── config.ts               # 环境变量加载
+    └── logger.ts               # 日志（info/warn/error/debug）
 ```
 
 ## 🔒 安全配置
 
-### 权限模式说明
+### 权限模式
 
-项目默认使用 `bypassPermissions` 模式（适合自动化场景）。如需更严格的控制：
+默认使用 `bypassPermissions`（适合个人自动化场景）。如需更细粒度控制：
 
-**只读助手**（仅查询，不修改）：
 ```bash
+# 只读模式 — 仅查询，不修改文件
 /config allowed_tools Read,Glob,Grep
+
+# 可编辑但不可执行命令
+/config allowed_tools Read,Write,Edit,Glob,Grep
+
+# 切换为逐次确认模式
+/config permission_mode default
 ```
 
-**禁用危险工具**：
-```typescript
-// 编辑 src/claude/bridge.ts
-const queryOptions: Options = {
-  // ...
-  disallowedTools: ['Bash'],  // 禁用命令执行
-};
-```
+### 生产部署建议
 
-**审计日志**：
-```typescript
-// 使用 PreToolUse Hook 记录所有工具调用
-hooks: {
-  PreToolUse: [{
-    matcher: null,  // 匹配所有工具
-    hooks: [async (input) => {
-      logger.info('Tool execution', { tool: input });
-      return { continue_: true };
-    }]
-  }]
-}
-```
-
-### 访问控制
-
-限制允许使用的飞书用户（可选）：
-```bash
-# .env
-ALLOWED_USER_IDS=ou_xxx,ou_yyy
-```
-
-### 沙箱部署（推荐生产环境）
-
-```bash
-docker run \
-  --cap-drop ALL \
-  --security-opt no-new-privileges \
-  --read-only \
-  --tmpfs /tmp:rw,noexec,nosuid,size=100m \
-  --network none \
-  --user 1000:1000 \
-  -v /path/to/workspace:/workspace:rw \
-  feishu-claude-bridge
-```
+- 使用 PM2 托管，限制内存和自动重启（已内置 `ecosystem.config.cjs`）
+- 考虑在 Docker 容器中运行，限制文件系统和网络权限
+- 定期通过 `/cost` 监控 API 用量
 
 ## 🐛 故障排查
 
-### 1. 飞书连接失败
+### 飞书连接失败
 
-**症状**：启动后无法接收消息
+**表现**：启动后无法接收消息
 
-**检查**：
 ```bash
-# 验证 App ID 和 Secret
-echo $FEISHU_APP_ID
-echo $FEISHU_APP_SECRET
+# 检查凭据
+echo $FEISHU_APP_ID && echo $FEISHU_APP_SECRET
 
 # 查看日志
 pm2 logs feishu-claude-bridge
 ```
 
-**解决**：
-- 确认飞书应用已发布并通过审核
-- 检查权限是否正确配置
-- 确认 WebSocket 模式已启用
+✅ 确认应用已发布并通过审核
+✅ 确认权限和事件订阅已正确配置
+✅ 确认 WebSocket 模式已启用
 
-### 2. Claude API 报错
+### Claude API 报错
 
-**症状**：执行任务时返回 401/403 错误
+**表现**：执行任务时返回错误卡片
 
-**检查**：
 ```bash
-# 验证 API Key
-echo $ANTHROPIC_API_KEY
-
 # 测试 API 连接
 curl https://api.anthropic.com/v1/messages \
   -H "x-api-key: $ANTHROPIC_API_KEY" \
   -H "anthropic-version: 2023-06-01"
 ```
 
-**解决**：
-- 确认 API Key 有效且未过期
-- 检查账户余额是否充足
-- 如使用第三方 API，检查 `ANTHROPIC_BASE_URL` 配置
+✅ 确认 API Key 有效且账户余额充足
+✅ 如使用第三方 API，确认 `ANTHROPIC_BASE_URL` 和 `ANTHROPIC_AUTH_TOKEN`
 
-### 3. 数据库错误
+### 任务无响应
 
-**症状**：无法保存项目或会话
+**表现**：发送消息后无反馈
 
-**检查**：
 ```bash
-# 检查数据库文件权限
+/status   # 查看是否有任务占用忙碌锁
+/stop     # 中止卡住的任务
+```
+
+如仍无法恢复：`pm2 restart feishu-claude-bridge`
+
+### 数据库异常
+
+```bash
+# 检查文件权限
 ls -la data/bridge.db
 
-# 查看数据库内容
-sqlite3 data/bridge.db "SELECT * FROM projects;"
+# 重建（自动重新创建表结构）
+rm data/bridge.db && npm run dev
 ```
 
-**解决**：
-```bash
-# 重建数据库
-rm data/bridge.db
-npm run dev  # 自动重新创建
-```
-
-### 4. 任务卡住不响应
-
-**症状**：发送消息后无反馈
-
-**检查**：
-- 查看忙碌锁状态：`/status`
-- 检查上一个任务是否完成
-
-**解决**：
-```bash
-# 中止当前任务
-/stop
-
-# 或重启服务
-pm2 restart feishu-claude-bridge
-```
-
-## 📊 性能优化
-
-### 卡片更新频率
-
-飞书卡片更新有频率限制（约 5 次/秒）。当前已做节流处理（800ms 间隔）。
-
-### 数据库性能
-
-SQLite 配置已优化：
-- WAL 模式（并发读写）
-- 内存缓存
-- 同步模式 NORMAL
-
-### 消息去重
-
-自动处理飞书重试机制，避免重复执行任务。
-
-## 🔄 更新日志
-
-### v0.1.0-mvp (2026-03-06)
-
-**核心功能**：
-- ✅ 飞书 WebSocket 集成
-- ✅ Claude Agent SDK 集成
-- ✅ 多项目管理
-- ✅ 会话持久化
-- ✅ 命令系统（12+ 命令）
-- ✅ 图片支持
-- ✅ 流式卡片更新
-- ✅ 消息去重
-- ✅ 忙碌锁机制
-- ✅ 费用追踪
-
-**已知限制**：
-- 单用户模式（无多租户隔离）
-- WebSocket 模式（暂无 HTTP Webhook）
-- 无交互式权限卡片（设计选择，适合自动化）
-
-## 🤝 贡献指南
-
-欢迎贡献代码、报告问题或提出建议！
-
-### 开发流程
-
-1. Fork 本仓库
-2. 创建特性分支：`git checkout -b feature/amazing-feature`
-3. 提交更改：`git commit -m 'Add amazing feature'`
-4. 推送分支：`git push origin feature/amazing-feature`
-5. 提交 Pull Request
-
-### 运行测试
+## 🤝 参与贡献
 
 ```bash
-npm test              # 运行所有测试
+# 开发
+git checkout -b feature/my-feature
+npm run dev
+
+# 测试
+npm test              # 运行全部测试
 npm run test:watch    # 监视模式
+
+# 提交
+git commit -m 'feat: add my feature'
+git push origin feature/my-feature
+# → 提交 Pull Request
 ```
 
-### 代码规范
-
-- 使用 TypeScript strict 模式
-- 遵循现有代码风格
-- 添加单元测试覆盖新功能
-- 更新文档
+项目使用 TypeScript strict 模式，请确保新功能附带单元测试。
 
 ## 📄 许可证
 
@@ -486,15 +364,10 @@ npm run test:watch    # 监视模式
 
 ## 🙏 致谢
 
-- [Anthropic Claude](https://www.anthropic.com/) - 提供强大的 AI 能力
-- [飞书开放平台](https://open.feishu.cn/) - 企业协作平台
-- [Claude Agent SDK](https://github.com/anthropics/anthropic-sdk-typescript) - 官方 SDK
-
-## 📞 支持
-
-- **问题反馈**：[GitHub Issues](https://github.com/cjj198909/feishu-claude-code/issues)
-- **功能建议**：[GitHub Discussions](https://github.com/cjj198909/feishu-claude-code/discussions)
+- [Anthropic Claude](https://www.anthropic.com/) — AI 能力提供
+- [Claude Code Agent SDK](https://docs.anthropic.com/en/docs/claude-code/sdk) — 官方 Agent SDK
+- [飞书开放平台](https://open.feishu.cn/) — 企业 IM 集成
 
 ---
 
-⚡ Built with ❤️ using [Claude Code Agent SDK](https://www.anthropic.com/claude-code)
+⚡ Built with [Claude Code Agent SDK](https://docs.anthropic.com/en/docs/claude-code/sdk)
