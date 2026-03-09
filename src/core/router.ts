@@ -356,9 +356,9 @@ export class MessageRouter {
     let latestText = '';
     let toolsSinceLastText: string[] = []; // tools between text blocks, for turn separators
 
-    // Format tool separator: always multi-line for readability
+    // Format tool separator: each tool gets its own decorated line
     const fmtTools = (tools: string[]): string =>
-      `──── 🔧 ────\n${tools.map(t => `  ${t}`).join('\n')}`;
+      tools.map(t => `──── 🔧 ${t} ────`).join('\n');
     let lastUpdateTime = 0;
     let resultSessionId: string | undefined;
     let resultCost = 0;
