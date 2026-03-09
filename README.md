@@ -114,11 +114,14 @@ ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxx   # Anthropic 控制台获取
 - `im:message.p2p_msg` — 接收单聊消息
 - `im:resource` — 获取与上传图片、文件资源
 
-**③ 事件订阅**（事件与回调页面）
+**③ 事件订阅**（事件与回调页面 → 事件配置）
 - 启用 **WebSocket 模式**（无需公网 IP）
-- 订阅事件：`im.message.receive_v1`
+- 订阅事件：`im.message.receive_v1` — 接收消息
 
-**④ 发布**
+**④ 回调配置**（事件与回调页面 → 回调配置）
+- 订阅回调：`card.action.trigger` — 卡片回传交互（交互式表单所需）
+
+**⑤ 发布**
 - 创建版本 → 申请发布 → 审核通过后可用
 
 ### 4. 启动服务
