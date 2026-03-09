@@ -25,6 +25,7 @@ export interface StreamEvent {
   type: 'text' | 'tool_use' | 'tool_result' | 'result' | 'ask_questions';
   content: string;
   toolName?: string;
+  toolLabel?: string; // e.g. "Read(router.ts)" — tool name with key param for display
   sessionId?: string;
   costUsd?: number;
   durationMs?: number;
@@ -91,6 +92,36 @@ function discoverPlugins(): Array<{ type: 'local'; path: string }> {
   }
 
   return pluginConfigs;
+}
+
+/** Format a short tool label with its key parameter, e.g. "Read(router.ts)" */
+function formatToolLabel(name: string, input: Record<string, unknown>): string {
+  const basename = (p: string) => p.split('/').pop() || p;
+  const truncate = (s: string, n: number) => s.length > n ? s.slice(0, n) + '…' : s;
+
+  switch (name) {
+    case 'Read':
+    case 'Edit':
+    case 'Write':
+      if (input.file_path) return `${name}(${basename(String(input.file_path))})`;
+      break;
+    case 'Bash':
+      if (input.command) return `${name}(${truncate(String(input.command), 30)})`;
+      break;
+    case 'Grep':
+      if (input.pattern) return `${name}("${truncate(String(input.pattern), 20)}")`;
+      break;
+    case 'Glob':
+      if (input.pattern) return `${name}(${truncate(String(input.pattern), 25)})`;
+      break;
+    case 'WebSearch':
+      if (input.query) return `${name}("${truncate(String(input.query), 25)}")`;
+      break;
+    case 'Agent':
+      if (input.description) return `${name}(${truncate(String(input.description), 25)})`;
+      break;
+  }
+  return name;
 }
 
 export class ClaudeCodeBridge {
@@ -287,7 +318,8 @@ export class ClaudeCodeBridge {
             if (block.type === 'text') {
               onStream({ type: 'text', content: block.text });
             } else if (block.type === 'tool_use') {
-              onStream({ type: 'tool_use', content: block.name, toolName: block.name });
+              const label = formatToolLabel(block.name, (block as any).input ?? {});
+              onStream({ type: 'tool_use', content: block.name, toolName: block.name, toolLabel: label });
             }
           }
         } else if (message.type === 'result') {

@@ -354,6 +354,7 @@ export class MessageRouter {
     // Streaming state
     const toolCalls: string[] = [];
     let latestText = '';
+    let toolsSinceLastText: string[] = []; // tools between text blocks, for turn separators
     let lastUpdateTime = 0;
     let resultSessionId: string | undefined;
     let resultCost = 0;
@@ -377,8 +378,22 @@ export class MessageRouter {
         (event: StreamEvent) => {
           if (event.type === 'tool_use' && event.toolName) {
             toolCalls.push(event.toolName);
+            toolsSinceLastText.push(event.toolLabel || event.toolName);
           } else if (event.type === 'text') {
-            latestText = event.content;
+            // Accumulate text with turn separators (not overwrite)
+            if (latestText) {
+              // Between two text blocks: insert separator with tool names
+              if (toolsSinceLastText.length > 0) {
+                latestText += `\n\n──── 🔧 ${toolsSinceLastText.join(' · ')} ────\n\n`;
+              } else {
+                latestText += '\n\n────\n\n';
+              }
+            } else if (toolsSinceLastText.length > 0) {
+              // First text block, but tools ran before it: prepend tool summary
+              latestText = `──── 🔧 ${toolsSinceLastText.join(' · ')} ────\n\n`;
+            }
+            toolsSinceLastText = [];
+            latestText += event.content;
           } else if (event.type === 'ask_questions' && useCardkit) {
             // Claude wants to ask the user a question — show an interactive form
             // 1. Close streaming mode so form interactions are enabled
@@ -419,6 +434,15 @@ export class MessageRouter {
             return;
           }
 
+          // Compute display text: latestText + live tool progress
+          let displayText = latestText;
+          if (toolsSinceLastText.length > 0) {
+            const toolProgress = `──── 🔧 ${toolsSinceLastText.join(' · ')} ────`;
+            displayText = latestText
+              ? latestText + '\n\n' + toolProgress
+              : toolProgress;
+          }
+
           // Throttle updates to 800ms
           const now = Date.now();
           if (now - lastUpdateTime >= 800) {
@@ -426,12 +450,12 @@ export class MessageRouter {
 
             if (useCardkit) {
               // Element-level update (efficient, preserves card structure)
-              this.bot.updateCardElement(cardMessageId, ELEMENT_IDS.mainContent, latestText)
+              this.bot.updateCardElement(cardMessageId, ELEMENT_IDS.mainContent, displayText)
                 .catch(e => logger.error('Failed to update card element', e));
             } else {
               // Legacy: full card replacement
               const elapsedSec = Math.round((now - startTime) / 1000);
-              const runCard = buildRunningCard(projectName, toolCalls, latestText, elapsedSec);
+              const runCard = buildRunningCard(projectName, toolCalls, displayText, elapsedSec);
               this.bot.updateCard(cardMessageId, runCard)
                 .catch(e => logger.error('Failed to update running card', e));
             }
