@@ -355,6 +355,13 @@ export class MessageRouter {
     const toolCalls: string[] = [];
     let latestText = '';
     let toolsSinceLastText: string[] = []; // tools between text blocks, for turn separators
+
+    // Format tool separator: single line if short, multi-line if long
+    const fmtTools = (tools: string[]): string => {
+      const oneLine = `──── 🔧 ${tools.join(' · ')} ────`;
+      if (oneLine.length <= 50) return oneLine;
+      return `──── 🔧 ────\n${tools.map(t => `  ${t}`).join('\n')}`;
+    };
     let lastUpdateTime = 0;
     let resultSessionId: string | undefined;
     let resultCost = 0;
@@ -384,13 +391,13 @@ export class MessageRouter {
             if (latestText) {
               // Between two text blocks: insert separator with tool names
               if (toolsSinceLastText.length > 0) {
-                latestText += `\n\n──── 🔧 ${toolsSinceLastText.join(' · ')} ────\n\n`;
+                latestText += `\n\n${fmtTools(toolsSinceLastText)}\n\n`;
               } else {
                 latestText += '\n\n────\n\n';
               }
             } else if (toolsSinceLastText.length > 0) {
               // First text block, but tools ran before it: prepend tool summary
-              latestText = `──── 🔧 ${toolsSinceLastText.join(' · ')} ────\n\n`;
+              latestText = `${fmtTools(toolsSinceLastText)}\n\n`;
             }
             toolsSinceLastText = [];
             latestText += event.content;
@@ -437,7 +444,7 @@ export class MessageRouter {
           // Compute display text: latestText + live tool progress
           let displayText = latestText;
           if (toolsSinceLastText.length > 0) {
-            const toolProgress = `──── 🔧 ${toolsSinceLastText.join(' · ')} ────`;
+            const toolProgress = fmtTools(toolsSinceLastText);
             displayText = latestText
               ? latestText + '\n\n' + toolProgress
               : toolProgress;
