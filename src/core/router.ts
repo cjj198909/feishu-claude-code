@@ -273,6 +273,8 @@ export class MessageRouter {
   private async handlePostMessage(chatId: string, messageId: string, content: string): Promise<void> {
     try {
       const parsed = JSON.parse(content);
+      // post content can be localized: { "zh_cn": { "title": "...", "content": [[...]] } }
+      // or directly { "title": "...", "content": [[...]] }
       const postBody = parsed.zh_cn || parsed.en_us || parsed.ja_jp || parsed;
       const lines: Array<Array<{ tag: string; text?: string; image_key?: string }>> = postBody.content || [];
 
