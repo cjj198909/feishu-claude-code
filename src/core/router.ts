@@ -356,12 +356,9 @@ export class MessageRouter {
     let latestText = '';
     let toolsSinceLastText: string[] = []; // tools between text blocks, for turn separators
 
-    // Format tool separator: single line if short, multi-line if long
-    const fmtTools = (tools: string[]): string => {
-      const oneLine = `──── 🔧 ${tools.join(' · ')} ────`;
-      if (oneLine.length <= 50) return oneLine;
-      return `──── 🔧 ────\n${tools.map(t => `  ${t}`).join('\n')}`;
-    };
+    // Format tool separator: always multi-line for readability
+    const fmtTools = (tools: string[]): string =>
+      `──── 🔧 ────\n${tools.map(t => `  ${t}`).join('\n')}`;
     let lastUpdateTime = 0;
     let resultSessionId: string | undefined;
     let resultCost = 0;
