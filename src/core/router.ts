@@ -4,7 +4,7 @@ import { parse } from './command.js';
 import { SessionManager } from './session.js';
 import { ClaudeCodeBridge, type StreamEvent } from '../claude/bridge.js';
 import { FeishuBot, type MessageHandler } from '../feishu/bot.js';
-import { buildRunningCard, buildDoneCard, buildErrorCard, buildAbortedCard } from '../feishu/card.js';
+import { buildStreamingCard, buildDoneStreamingCard, buildErrorStreamingCard, buildAbortedStreamingCard, buildRunningCard, buildDoneCard, buildErrorCard, buildAbortedCard, ELEMENT_IDS } from '../feishu/card.js';
 import { saveImage } from '../feishu/image.js';
 import { logger } from '../utils/logger.js';
 
@@ -330,9 +330,20 @@ export class MessageRouter {
     const projectName = project.name;
     const startTime = Date.now();
 
-    // Send initial running card
-    const card = buildRunningCard(projectName, [], '', 0);
-    const cardMessageId = await this.bot.sendCard(chatId, card);
+    // Try streaming card (cardkit JSON 2.0), fall back to legacy card
+    let cardMessageId: string;
+    let useCardkit = false;
+
+    try {
+      const streamCard = buildStreamingCard(projectName);
+      cardMessageId = await this.bot.sendStreamingCard(chatId, streamCard);
+      useCardkit = true;
+      logger.info('Streaming card created via cardkit');
+    } catch (err) {
+      logger.warn('Cardkit streaming failed, falling back to legacy card:', err);
+      const card = buildRunningCard(projectName, [], '', 0);
+      cardMessageId = await this.bot.sendCard(chatId, card);
+    }
 
     // Streaming state
     const toolCalls: string[] = [];
@@ -376,27 +387,51 @@ export class MessageRouter {
             return;
           }
 
-          // Throttle running card updates to 800ms
+          // Throttle updates to 800ms
           const now = Date.now();
           if (now - lastUpdateTime >= 800) {
             lastUpdateTime = now;
-            const elapsedSec = Math.round((now - startTime) / 1000);
-            const runCard = buildRunningCard(projectName, toolCalls, latestText, elapsedSec);
-            this.bot.updateCard(cardMessageId, runCard).catch(e => logger.error('Failed to update running card', e));
+
+            if (useCardkit) {
+              // Element-level update (efficient, preserves card structure)
+              this.bot.updateCardElement(cardMessageId, ELEMENT_IDS.mainContent, latestText)
+                .catch(e => logger.error('Failed to update card element', e));
+            } else {
+              // Legacy: full card replacement
+              const elapsedSec = Math.round((now - startTime) / 1000);
+              const runCard = buildRunningCard(projectName, toolCalls, latestText, elapsedSec);
+              this.bot.updateCard(cardMessageId, runCard)
+                .catch(e => logger.error('Failed to update running card', e));
+            }
           }
         },
       );
 
-      // If execution completed successfully, update to done card
+      // Execution completed successfully
       if (!aborted && resultSessionId !== undefined) {
         const elapsedSec = Math.round((Date.now() - startTime) / 1000);
-        const doneCard = buildDoneCard(projectName, latestText || 'Done.', {
-          tools: this.summarizeTools(toolCalls),
-          elapsed: elapsedSec,
-          cost: resultCost,
-          turns: resultTurns,
-        });
-        await this.bot.updateCard(cardMessageId, doneCard).catch(e => logger.error('Failed to update done card', e));
+
+        if (useCardkit) {
+          // Full card update: replaces header (green ✅) + body + closes streaming
+          const doneStreamCard = buildDoneStreamingCard(projectName, latestText || 'Done.', {
+            tools: this.summarizeTools(toolCalls),
+            elapsed: elapsedSec,
+            cost: resultCost,
+            turns: resultTurns,
+          });
+          await this.bot.updateStreamingCard(cardMessageId, doneStreamCard)
+            .catch(e => logger.error('Failed to update done streaming card', e));
+        } else {
+          // Legacy: full card replacement
+          const doneCard = buildDoneCard(projectName, latestText || 'Done.', {
+            tools: this.summarizeTools(toolCalls),
+            elapsed: elapsedSec,
+            cost: resultCost,
+            turns: resultTurns,
+          });
+          await this.bot.updateCard(cardMessageId, doneCard)
+            .catch(e => logger.error('Failed to update done card', e));
+        }
       }
     } catch (err) {
       const elapsedSec = Math.round((Date.now() - startTime) / 1000);
@@ -404,11 +439,21 @@ export class MessageRouter {
 
       if (message.includes('abort') || message.includes('Abort')) {
         aborted = true;
-        const abortCard = buildAbortedCard(projectName, latestText, elapsedSec);
-        await this.bot.updateCard(cardMessageId, abortCard).catch(e => logger.error('Failed to update aborted card', e));
+        if (useCardkit) {
+          const abortStreamCard = buildAbortedStreamingCard(projectName, latestText, elapsedSec);
+          await this.bot.updateStreamingCard(cardMessageId, abortStreamCard).catch(() => {});
+        } else {
+          const abortCard = buildAbortedCard(projectName, latestText, elapsedSec);
+          await this.bot.updateCard(cardMessageId, abortCard).catch(e => logger.error('Failed to update aborted card', e));
+        }
       } else {
-        const errCard = buildErrorCard(projectName, message, elapsedSec);
-        await this.bot.updateCard(cardMessageId, errCard).catch(e => logger.error('Failed to update error card', e));
+        if (useCardkit) {
+          const errStreamCard = buildErrorStreamingCard(projectName, message, elapsedSec);
+          await this.bot.updateStreamingCard(cardMessageId, errStreamCard).catch(() => {});
+        } else {
+          const errCard = buildErrorCard(projectName, message, elapsedSec);
+          await this.bot.updateCard(cardMessageId, errCard).catch(e => logger.error('Failed to update error card', e));
+        }
       }
     }
   }
