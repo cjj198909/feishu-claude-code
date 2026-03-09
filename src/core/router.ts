@@ -2,9 +2,10 @@
 import { existsSync } from 'fs';
 import { parse } from './command.js';
 import { SessionManager } from './session.js';
+import { QuestionManager } from './question-manager.js';
 import { ClaudeCodeBridge, type StreamEvent } from '../claude/bridge.js';
-import { FeishuBot, type MessageHandler } from '../feishu/bot.js';
-import { buildStreamingCard, buildDoneStreamingCard, buildErrorStreamingCard, buildAbortedStreamingCard, buildRunningCard, buildDoneCard, buildErrorCard, buildAbortedCard, ELEMENT_IDS } from '../feishu/card.js';
+import { FeishuBot, type MessageHandler, type CardActionEvent } from '../feishu/bot.js';
+import { buildStreamingCard, buildDoneStreamingCard, buildErrorStreamingCard, buildAbortedStreamingCard, buildProcessingStreamingCard, buildRunningCard, buildDoneCard, buildErrorCard, buildAbortedCard, buildQuestionFormElements, ELEMENT_IDS } from '../feishu/card.js';
 import { saveImage } from '../feishu/image.js';
 import { logger } from '../utils/logger.js';
 
@@ -12,11 +13,19 @@ export class MessageRouter {
   private sessions: SessionManager;
   private bridge: ClaudeCodeBridge;
   private bot: FeishuBot;
+  private questionMgr: QuestionManager;
 
   constructor(sessions: SessionManager, bridge: ClaudeCodeBridge, bot: FeishuBot) {
     this.sessions = sessions;
     this.bridge = bridge;
     this.bot = bot;
+    this.questionMgr = new QuestionManager();
+
+    // Wire QuestionManager into the bridge (enables canUseTool Hook)
+    this.bridge.setQuestionManager(this.questionMgr);
+
+    // Register card action handler for form submissions
+    this.bot.setCardActionHandler(this.handleCardAction.bind(this));
   }
 
   /**
@@ -365,12 +374,37 @@ export class MessageRouter {
           allowedTools: project.allowed_tools ? project.allowed_tools.split(',') : undefined,
           permissionMode: project.permission_mode,
           maxTurns: project.max_turns,
+          enableQuestions: useCardkit, // Only enable interactive questions when cardkit is available
         },
         (event: StreamEvent) => {
           if (event.type === 'tool_use' && event.toolName) {
             toolCalls.push(event.toolName);
           } else if (event.type === 'text') {
             latestText = event.content;
+          } else if (event.type === 'ask_questions' && useCardkit) {
+            // Claude wants to ask the user a question — show an interactive form
+            // 1. Close streaming mode so form interactions are enabled
+            // 2. Append question form elements to the card
+            // Note: bridge is blocked in canUseTool Hook awaiting the answer
+            logger.info('Appending question form to card', {
+              questionId: event.questionId,
+              questionCount: event.questions?.length,
+            });
+            (async () => {
+              try {
+                await this.bot.closeCardStreaming(cardMessageId);
+                const formElements = buildQuestionFormElements(
+                  event.questions!,
+                  event.questionId!,
+                  chatId,
+                  projectName,
+                );
+                await this.bot.appendCardElements(cardMessageId, formElements);
+              } catch (e) {
+                logger.error('Failed to append question form', e);
+              }
+            })();
+            return;
           } else if (event.type === 'result') {
             resultSessionId = event.sessionId;
             resultCost = event.costUsd ?? 0;
@@ -455,6 +489,51 @@ export class MessageRouter {
           await this.bot.updateCard(cardMessageId, errCard).catch(e => logger.error('Failed to update error card', e));
         }
       }
+    }
+  }
+
+  // ─── Card action handler (form submissions) ────────────────────
+
+  private async handleCardAction(event: CardActionEvent): Promise<void> {
+    const value = event.action?.value;
+    if (value?.['_fcc_action'] !== 'questions_submit') return;
+
+    const questionId = value['_fcc_question_id'] as string | undefined;
+    const projectName = value['_fcc_project_name'] as string | undefined;
+    const messageId = event.context?.open_message_id;
+    const formValue = event.action?.form_value ?? {};
+
+    if (!questionId) {
+      logger.warn('Card action: missing question_id');
+      return;
+    }
+
+    // Reconstruct ordered answers from q0, q1, … keys
+    const answers: Record<string, string> = {};
+    for (const [key, val] of Object.entries(formValue)) {
+      if (/^q\d+$/.test(key)) {
+        answers[key] = val;
+      }
+    }
+
+    if (Object.keys(answers).length === 0) {
+      logger.warn('Card action: form_value has no q* entries');
+      return;
+    }
+
+    logger.info('Card form submitted', { questionId, answers });
+
+    // Immediately update card: remove form, show "processing", re-enable streaming
+    if (messageId && projectName) {
+      const processingCard = buildProcessingStreamingCard(projectName);
+      await this.bot.reopenCardStreaming(messageId, processingCard)
+        .catch(e => logger.error('Failed to update card to processing state', e));
+    }
+
+    // Submit answers — resolves the Promise in canUseTool Hook
+    const submitted = this.questionMgr.submitAnswers(questionId, answers);
+    if (!submitted) {
+      logger.warn(`No pending question for ID ${questionId} (may have timed out)`);
     }
   }
 

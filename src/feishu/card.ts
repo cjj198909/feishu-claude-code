@@ -100,6 +100,105 @@ export function buildAbortedStreamingCard(projectName: string, lastText: string,
   };
 }
 
+/**
+ * Build a Card JSON 2.0 for the "processing answer" state.
+ * Shown immediately after the user submits the question form —
+ * removes the form, re-enables streaming so subsequent element updates work.
+ */
+export function buildProcessingStreamingCard(projectName: string): Record<string, unknown> {
+  return {
+    schema: '2.0',
+    config: {
+      streaming_mode: true,
+      streaming_config: {
+        print_frequency_ms: { default: 50 },
+        print_step: { default: 5 },
+        print_strategy: 'delay',
+      },
+    },
+    header: {
+      title: { tag: 'plain_text', content: `🔄 处理中 | 项目: ${projectName}` },
+      template: 'blue',
+    },
+    body: {
+      elements: [
+        { tag: 'markdown', element_id: ELEMENT_IDS.mainContent, content: '⏳ 处理回答中...' },
+        { tag: 'hr', element_id: ELEMENT_IDS.divider },
+        { tag: 'markdown', element_id: ELEMENT_IDS.stats, content: '处理中...' },
+      ],
+    },
+  };
+}
+
+// ─── Interactive question form (Card JSON 2.0) ───────────────
+
+/**
+ * Build card elements for an AskUserQuestion interactive form.
+ * Returns an array to be appended to a streaming card via appendCardElements().
+ *
+ * Layout: hr → prompt → form(select_static per question + submit button)
+ *
+ * The submit button encodes the questionId and chatId in its callback value
+ * so the card.action.trigger handler can route answers to the right QuestionManager entry.
+ *
+ * IMPORTANT: streaming_mode must be closed BEFORE appending these elements,
+ * otherwise form interactions are disabled.
+ */
+export function buildQuestionFormElements(
+  questions: Array<{ question: string; header?: string; options: Array<{ label: string; description?: string }>; multiSelect?: boolean }>,
+  questionId: string,
+  chatId: string,
+  projectName: string,
+): Record<string, unknown>[] {
+  const formInner: Record<string, unknown>[] = [];
+
+  for (let i = 0; i < questions.length; i++) {
+    const q = questions[i];
+    const headerText = q.header ? ` *(${q.header})*` : '';
+    formInner.push({ tag: 'markdown', content: `**${i + 1}. ${q.question}**${headerText}` });
+    formInner.push({
+      tag: 'select_static',
+      name: `q${i}`,
+      required: true,
+      width: 'fill',
+      placeholder: { tag: 'plain_text', content: '请选择...' },
+      options: q.options.map(opt => ({
+        text: {
+          tag: 'plain_text',
+          content: opt.description ? `${opt.label}: ${opt.description}` : opt.label,
+        },
+        value: opt.label,
+      })),
+    });
+  }
+
+  formInner.push({
+    tag: 'button',
+    name: 'fcc_submit',
+    type: 'primary_filled',
+    width: 'default',
+    text: { tag: 'plain_text', content: '提交' },
+    form_action_type: 'submit',
+    behaviors: [
+      {
+        type: 'callback',
+        value: {
+          _fcc_action: 'questions_submit',
+          _fcc_question_id: questionId,
+          _fcc_chat_id: chatId,
+          _fcc_project_name: projectName,
+        },
+      },
+    ],
+  });
+
+  return [
+    { tag: 'hr' },
+    { tag: 'markdown', content: '**💡 请回答以下问题：**' },
+    { tag: 'form', name: 'fcc_questions', vertical_spacing: '12px', elements: formInner },
+  ];
+}
+
 // ─── Legacy card format (for im.message.patch fallback) ──────
 
 interface CardElement {
