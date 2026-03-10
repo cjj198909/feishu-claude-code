@@ -8,7 +8,7 @@
 
 一个轻量级 Node.js 服务，将飞书 IM 与 [Claude Code Agent SDK](https://docs.anthropic.com/en/docs/claude-code/sdk) 打通——消息直传 Claude Code，零中间层、零 Prompt 工程，保留完整的工具调用能力。个人或小团队即可在飞书群聊中完成代码审查、Bug 修复、功能开发等日常编码工作。
 
-> ⚠️ **安全提示**：本项目默认使用 `bypassPermissions` 模式，Claude 可直接读写文件、执行命令，**无需逐次确认**。这是为个人自动化场景设计的。如果你在共享环境或生产服务器上使用，请务必通过 `/config permission_mode default` 切换为确认模式，或通过 `/config allowed_tools` 限制可用工具。详见 [安全配置](#-安全配置)。
+> ⚠️ **安全提示**：本项目使用 `bypassPermissions` 模式运行，Claude 可直接读写文件、执行命令，**无需逐次确认**。这是 Agent SDK 在无终端环境下的必要配置——切换为其他权限模式并不会真正拦截工具调用（详见 [安全配置](#-安全配置)）。**真正有效的安全控制是 `/config allowed_tools`**，它可以限制 Claude 可用的工具集合。请确保仅在你信任的机器和项目目录下运行本服务。
 
 ## ✨ 核心特性
 
@@ -270,9 +270,17 @@ src/
 
 ## 🔒 安全配置
 
-### 权限模式
+### 关于 bypassPermissions
 
-默认使用 `bypassPermissions`（适合个人自动化场景）。如需更细粒度控制：
+本项目固定使用 `bypassPermissions` 模式。这不是偏好，而是**架构约束**：
+
+- Agent SDK 在无终端环境下运行，没有交互式的权限确认界面
+- 虽然可以通过 `/config permission_mode` 切换为 `default` 或 `acceptEdits`，但底层的 `canUseTool` Hook 对所有常规工具都返回 `allow`，**实际不会拦截任何操作**
+- 切换模式只会让 Claude 的行为风格更保守（多问少做），但不提供真正的安全屏障
+
+### 真正有效的安全控制：allowed_tools
+
+`/config allowed_tools` 直接限制 Claude 可用的工具集合，这是**唯一有实际约束力的安全机制**：
 
 ```bash
 # 只读模式 — 仅查询，不修改文件
@@ -281,14 +289,15 @@ src/
 # 可编辑但不可执行命令
 /config allowed_tools Read,Write,Edit,Glob,Grep
 
-# 切换为逐次确认模式
-/config permission_mode default
+# 恢复默认（全部工具）
+/config allowed_tools Read,Write,Edit,Bash,Glob,Grep
 ```
 
-### 生产部署建议
+### 部署建议
 
+- 仅在你**信任且可控**的机器上运行，不要部署到共享服务器
+- 通过 `/config allowed_tools` 按项目最小化工具权限
 - 使用 PM2 托管，限制内存和自动重启（已内置 `ecosystem.config.cjs`）
-- 考虑在 Docker 容器中运行，限制文件系统和网络权限
 - 定期通过 `/cost` 监控 API 用量
 
 ## 🐛 故障排查
