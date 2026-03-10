@@ -9,23 +9,38 @@ import { buildStreamingCard, buildDoneStreamingCard, buildErrorStreamingCard, bu
 import { logger } from '../utils/logger.js';
 
 // ─── Card text truncation ────────────────────────────────────────
-// Feishu cards have a ~30KB payload limit. Keep the tail (latest output)
-// and fold earlier tool calls from the head when content is too long.
+// Two-phase strategy:
+//   Phase 1 — Fold excessive tool separator lines (keep last N, UX readability)
+//   Phase 2 — Byte-based head truncation (safety net for 30KB card limit)
 const CARD_TEXT_LIMIT = 20_000; // ~20KB text budget (card ~30KB minus JSON structure)
+const MAX_TOOL_LINES = 10;     // Keep last 10 tool separators visible
 
-function truncateHead(text: string, limit: number = CARD_TEXT_LIMIT): string {
-  if (text.length <= limit) return text;
-  const removeLen = text.length - limit;
-  const removed = text.slice(0, removeLen);
-  const toolCount = (removed.match(/──── 🔧/g) || []).length;
-  // Cut at a clean line boundary
-  const tail = text.slice(removeLen);
-  const nlIdx = tail.indexOf('\n');
-  const clean = nlIdx >= 0 ? tail.slice(nlIdx + 1) : tail;
-  const hint = toolCount > 0
-    ? `── ⚡ 前 ${toolCount} 次工具调用已折叠 ──\n\n`
-    : '── ⚡ 早期内容已折叠 ──\n\n';
-  return hint + clean;
+function truncateForCard(text: string): string {
+  let result = text;
+
+  // Phase 1: Fold tool separator lines beyond MAX_TOOL_LINES
+  const lines = result.split('\n');
+  const toolIndices: number[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].startsWith('──── 🔧')) toolIndices.push(i);
+  }
+  if (toolIndices.length > MAX_TOOL_LINES) {
+    const foldCount = toolIndices.length - MAX_TOOL_LINES;
+    const firstKeptIdx = toolIndices[foldCount];
+    const kept = lines.slice(firstKeptIdx);
+    result = `── ⚡ 前 ${foldCount} 次工具调用已折叠 ──\n\n` + kept.join('\n');
+  }
+
+  // Phase 2: If still over byte limit, truncate from head
+  if (result.length > CARD_TEXT_LIMIT) {
+    const removeLen = result.length - CARD_TEXT_LIMIT;
+    const tail = result.slice(removeLen);
+    const nlIdx = tail.indexOf('\n');
+    const clean = nlIdx >= 0 ? tail.slice(nlIdx + 1) : tail;
+    result = '── ⚡ 早期内容已折叠 ──\n\n' + clean;
+  }
+
+  return result;
 }
 
 export class MessageRouter {
@@ -472,7 +487,7 @@ export class MessageRouter {
           if (now - lastUpdateTime >= 800) {
             lastUpdateTime = now;
 
-            const cardText = truncateHead(displayText);
+            const cardText = truncateForCard(displayText);
             if (useCardkit) {
               // Element-level update (efficient, preserves card structure)
               this.bot.updateCardElement(cardMessageId, ELEMENT_IDS.mainContent, cardText)
@@ -494,7 +509,7 @@ export class MessageRouter {
 
         if (useCardkit) {
           // Full card update: replaces header (green ✅) + body + closes streaming
-          const doneStreamCard = buildDoneStreamingCard(projectName, truncateHead(latestText) || 'Done.', {
+          const doneStreamCard = buildDoneStreamingCard(projectName, truncateForCard(latestText) || 'Done.', {
             tools: this.summarizeTools(toolCalls),
             elapsed: elapsedSec,
             cost: resultCost,
@@ -504,7 +519,7 @@ export class MessageRouter {
             .catch(e => logger.error('Failed to update done streaming card', e));
         } else {
           // Legacy: full card replacement
-          const doneCard = buildDoneCard(projectName, truncateHead(latestText) || 'Done.', {
+          const doneCard = buildDoneCard(projectName, truncateForCard(latestText) || 'Done.', {
             tools: this.summarizeTools(toolCalls),
             elapsed: elapsedSec,
             cost: resultCost,
@@ -521,10 +536,10 @@ export class MessageRouter {
       if (message.includes('abort') || message.includes('Abort')) {
         aborted = true;
         if (useCardkit) {
-          const abortStreamCard = buildAbortedStreamingCard(projectName, truncateHead(latestText), elapsedSec);
+          const abortStreamCard = buildAbortedStreamingCard(projectName, truncateForCard(latestText), elapsedSec);
           await this.bot.updateStreamingCard(cardMessageId, abortStreamCard).catch(() => {});
         } else {
-          const abortCard = buildAbortedCard(projectName, truncateHead(latestText), elapsedSec);
+          const abortCard = buildAbortedCard(projectName, truncateForCard(latestText), elapsedSec);
           await this.bot.updateCard(cardMessageId, abortCard).catch(e => logger.error('Failed to update aborted card', e));
         }
       } else {
