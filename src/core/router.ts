@@ -13,7 +13,7 @@ import { logger } from '../utils/logger.js';
 //   Phase 1 — Fold excessive tool separator lines (keep last N, UX readability)
 //   Phase 2 — Byte-based head truncation (safety net for 30KB card limit)
 const CARD_TEXT_LIMIT = 20_000; // ~20KB text budget (card ~30KB minus JSON structure)
-const MAX_TOOL_LINES = 10;     // Keep last 10 tool separators visible
+const MAX_TOOL_LINES = 5;      // Keep last 5 tool separators visible
 
 function truncateForCard(text: string): string {
   let result = text;

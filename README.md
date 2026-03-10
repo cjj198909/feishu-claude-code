@@ -8,6 +8,8 @@
 
 一个轻量级 Node.js 服务，将飞书 IM 与 [Claude Code Agent SDK](https://docs.anthropic.com/en/docs/claude-code/sdk) 打通——消息直传 Claude Code，零中间层、零 Prompt 工程，保留完整的工具调用能力。个人或小团队即可在飞书群聊中完成代码审查、Bug 修复、功能开发等日常编码工作。
 
+> ⚠️ **安全提示**：本项目默认使用 `bypassPermissions` 模式，Claude 可直接读写文件、执行命令，**无需逐次确认**。这是为个人自动化场景设计的。如果你在共享环境或生产服务器上使用，请务必通过 `/config permission_mode default` 切换为确认模式，或通过 `/config allowed_tools` 限制可用工具。详见 [安全配置](#-安全配置)。
+
 ## ✨ 核心特性
 
 | 特性 | 说明 |
