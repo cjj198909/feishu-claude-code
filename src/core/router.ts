@@ -15,6 +15,23 @@ import { logger } from '../utils/logger.js';
 const CARD_TEXT_LIMIT = 20_000; // ~20KB text budget (card ~30KB minus JSON structure)
 const MAX_TOOL_LINES = 5;      // Keep last 5 tool separators visible
 
+// ─── Session size thresholds ────────────────────────────────────
+const SESSION_WARN_MB = 3;   // Warn user to /compact
+const SESSION_BLOCK_MB = 8;  // Refuse to resume
+
+// ─── /compact prompt ────────────────────────────────────────────
+const COMPACT_PROMPT = `请回顾我们的完整对话历史，将所有关键信息整理写入项目根目录的 CLAUDE.md 文件。
+
+要求包含：
+1. 项目概述和目标
+2. 已确认的架构决策和技术选型（附理由）
+3. 当前实施进度（已完成/进行中/待做）
+4. 重要的代码约定和模式
+5. 已知问题和注意事项
+
+确保信息足够完整，使得新会话仅通过读取 CLAUDE.md 就能恢复完整上下文继续工作。
+如果 CLAUDE.md 已存在，请在其基础上更新而非覆盖。`;
+
 function truncateForCard(text: string): string {
   let result = text;
 
@@ -144,6 +161,9 @@ export class MessageRouter {
           break;
         case 'cost':
           await this.cmdCost(chatId);
+          break;
+        case 'compact':
+          await this.cmdCompact(chatId);
           break;
         case 'help':
           await this.cmdHelp(chatId);
@@ -294,6 +314,7 @@ export class MessageRouter {
       '/status - Show current status',
       '/reset - Reset current session',
       '/stop - Abort running task',
+      '/compact - Compress session (saves context to CLAUDE.md, then resets)',
       '/history - Show session history',
       '/resume <id> - Resume a session',
       '/config <key> <value> - Update project config',
@@ -301,6 +322,24 @@ export class MessageRouter {
       '/help - Show this help',
     ];
     await this.bot.sendText(chatId, help.join('\n'));
+  }
+
+  private async cmdCompact(chatId: string): Promise<void> {
+    const project = this.sessions.getActiveProject();
+    if (!project) {
+      await this.bot.sendText(chatId, 'No active project. Use /use <name> first.');
+      return;
+    }
+    const sessionId = this.sessions.getCurrentSessionId();
+    if (!sessionId) {
+      await this.bot.sendText(chatId, 'No active session to compact.');
+      return;
+    }
+    if (this.bridge.isBusy) {
+      await this.bot.sendText(chatId, 'A task is already running. Please wait or /stop first.');
+      return;
+    }
+    await this.handlePrompt(chatId, COMPACT_PROMPT, undefined, { autoResetAfter: true });
   }
 
   // ─── Post (rich text) handling ──────────────────────────────────
@@ -356,7 +395,7 @@ export class MessageRouter {
 
   // ─── Prompt handling ────────────────────────────────────────────
 
-  private async handlePrompt(chatId: string, text: string, attachments?: Buffer[]): Promise<void> {
+  private async handlePrompt(chatId: string, text: string, attachments?: Buffer[], options?: { autoResetAfter?: boolean }): Promise<void> {
     const project = this.sessions.getActiveProject();
     if (!project) {
       await this.bot.sendText(chatId, 'No active project. Use /use <name> to select one, or /add <name> <path> to register.');
@@ -370,6 +409,21 @@ export class MessageRouter {
 
     const projectName = project.name;
     const startTime = Date.now();
+
+    // ── Session size check ─────────────────────────────────────
+    const sessionSize = this.sessions.getSessionFileSize();
+    if (sessionSize !== null) {
+      const sizeMB = sessionSize / (1024 * 1024);
+      if (sizeMB >= SESSION_BLOCK_MB) {
+        await this.bot.sendText(chatId,
+          `⚠️ 会话文件已达 ${sizeMB.toFixed(1)}MB，过大无法继续。请先发 /compact 压缩会话，或 /reset 重置。`);
+        return;
+      }
+      if (sizeMB >= SESSION_WARN_MB) {
+        await this.bot.sendText(chatId,
+          `⚠️ 会话文件已达 ${sizeMB.toFixed(1)}MB，建议尽快 /compact 压缩以避免崩溃。继续执行本次请求...`);
+      }
+    }
 
     // Try streaming card (cardkit JSON 2.0), fall back to legacy card
     let cardMessageId: string;
@@ -528,10 +582,31 @@ export class MessageRouter {
           await this.bot.updateCard(cardMessageId, doneCard)
             .catch(e => logger.error('Failed to update done card', e));
         }
+
+        // Auto-reset session after compact
+        if (options?.autoResetAfter) {
+          this.sessions.resetCurrentSession();
+          await this.bot.sendText(chatId, '🗜️ 会话已压缩，上下文已保存到 CLAUDE.md。Session 已自动重置，下次消息将开始新会话。');
+        }
       }
     } catch (err) {
       const elapsedSec = Math.round((Date.now() - startTime) / 1000);
       const message = (err as Error).message ?? String(err);
+
+      // Resume failed (session too large for API) — auto-reset and notify
+      if (message.includes('exited with code 1') && resumeSessionId) {
+        logger.warn('Resume failed, auto-resetting session', { sessionId: resumeSessionId, message });
+        this.sessions.resetCurrentSession();
+        const resetMsg = '⚠️ 会话过大导致加载失败，已自动重置。建议使用 /compact 定期压缩会话。\n请重新发送您的消息。';
+        if (useCardkit) {
+          const errStreamCard = buildErrorStreamingCard(projectName, resetMsg, elapsedSec);
+          await this.bot.updateStreamingCard(cardMessageId, errStreamCard).catch(() => {});
+        } else {
+          const errCard = buildErrorCard(projectName, resetMsg, elapsedSec);
+          await this.bot.updateCard(cardMessageId, errCard).catch(() => {});
+        }
+        return;
+      }
 
       if (message.includes('abort') || message.includes('Abort')) {
         aborted = true;

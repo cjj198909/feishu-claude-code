@@ -1,3 +1,6 @@
+import { statSync } from 'fs';
+import { join } from 'path';
+import { homedir } from 'os';
 import { Database, type Project, type Session } from '../db/database.js';
 
 export class SessionManager {
@@ -79,5 +82,17 @@ export class SessionManager {
 
   getUsageStats() {
     return this.db.getUsageStats();
+  }
+
+  /** Get the active session's JSONL file size in bytes, or null if unavailable. */
+  getSessionFileSize(): number | null {
+    const sessionId = this.getCurrentSessionId();
+    const project = this.getActiveProject();
+    if (!sessionId || !project) return null;
+    // Claude stores sessions at ~/.claude/projects/{hash}/{sessionId}.jsonl
+    // where hash = absolute path with '/' replaced by '-'
+    const hash = project.path.replace(/\//g, '-');
+    const filePath = join(homedir(), '.claude', 'projects', hash, `${sessionId}.jsonl`);
+    try { return statSync(filePath).size; } catch { return null; }
   }
 }
