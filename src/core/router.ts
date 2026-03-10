@@ -8,6 +8,26 @@ import { FeishuBot, type MessageHandler, type CardActionEvent } from '../feishu/
 import { buildStreamingCard, buildDoneStreamingCard, buildErrorStreamingCard, buildAbortedStreamingCard, buildProcessingStreamingCard, buildRunningCard, buildDoneCard, buildErrorCard, buildAbortedCard, buildQuestionFormElements, ELEMENT_IDS } from '../feishu/card.js';
 import { logger } from '../utils/logger.js';
 
+// ─── Card text truncation ────────────────────────────────────────
+// Feishu cards have a ~30KB payload limit. Keep the tail (latest output)
+// and fold earlier tool calls from the head when content is too long.
+const CARD_TEXT_LIMIT = 20_000; // ~20KB text budget (card ~30KB minus JSON structure)
+
+function truncateHead(text: string, limit: number = CARD_TEXT_LIMIT): string {
+  if (text.length <= limit) return text;
+  const removeLen = text.length - limit;
+  const removed = text.slice(0, removeLen);
+  const toolCount = (removed.match(/──── 🔧/g) || []).length;
+  // Cut at a clean line boundary
+  const tail = text.slice(removeLen);
+  const nlIdx = tail.indexOf('\n');
+  const clean = nlIdx >= 0 ? tail.slice(nlIdx + 1) : tail;
+  const hint = toolCount > 0
+    ? `── ⚡ 前 ${toolCount} 次工具调用已折叠 ──\n\n`
+    : '── ⚡ 早期内容已折叠 ──\n\n';
+  return hint + clean;
+}
+
 export class MessageRouter {
   private sessions: SessionManager;
   private bridge: ClaudeCodeBridge;
@@ -452,14 +472,15 @@ export class MessageRouter {
           if (now - lastUpdateTime >= 800) {
             lastUpdateTime = now;
 
+            const cardText = truncateHead(displayText);
             if (useCardkit) {
               // Element-level update (efficient, preserves card structure)
-              this.bot.updateCardElement(cardMessageId, ELEMENT_IDS.mainContent, displayText)
+              this.bot.updateCardElement(cardMessageId, ELEMENT_IDS.mainContent, cardText)
                 .catch(e => logger.error('Failed to update card element', e));
             } else {
               // Legacy: full card replacement
               const elapsedSec = Math.round((now - startTime) / 1000);
-              const runCard = buildRunningCard(projectName, toolCalls, displayText, elapsedSec);
+              const runCard = buildRunningCard(projectName, toolCalls, cardText, elapsedSec);
               this.bot.updateCard(cardMessageId, runCard)
                 .catch(e => logger.error('Failed to update running card', e));
             }
@@ -473,7 +494,7 @@ export class MessageRouter {
 
         if (useCardkit) {
           // Full card update: replaces header (green ✅) + body + closes streaming
-          const doneStreamCard = buildDoneStreamingCard(projectName, latestText || 'Done.', {
+          const doneStreamCard = buildDoneStreamingCard(projectName, truncateHead(latestText) || 'Done.', {
             tools: this.summarizeTools(toolCalls),
             elapsed: elapsedSec,
             cost: resultCost,
@@ -483,7 +504,7 @@ export class MessageRouter {
             .catch(e => logger.error('Failed to update done streaming card', e));
         } else {
           // Legacy: full card replacement
-          const doneCard = buildDoneCard(projectName, latestText || 'Done.', {
+          const doneCard = buildDoneCard(projectName, truncateHead(latestText) || 'Done.', {
             tools: this.summarizeTools(toolCalls),
             elapsed: elapsedSec,
             cost: resultCost,
@@ -500,10 +521,10 @@ export class MessageRouter {
       if (message.includes('abort') || message.includes('Abort')) {
         aborted = true;
         if (useCardkit) {
-          const abortStreamCard = buildAbortedStreamingCard(projectName, latestText, elapsedSec);
+          const abortStreamCard = buildAbortedStreamingCard(projectName, truncateHead(latestText), elapsedSec);
           await this.bot.updateStreamingCard(cardMessageId, abortStreamCard).catch(() => {});
         } else {
-          const abortCard = buildAbortedCard(projectName, latestText, elapsedSec);
+          const abortCard = buildAbortedCard(projectName, truncateHead(latestText), elapsedSec);
           await this.bot.updateCard(cardMessageId, abortCard).catch(e => logger.error('Failed to update aborted card', e));
         }
       } else {
